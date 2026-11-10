@@ -1,0 +1,135 @@
+name: Build MateableCoin Miner
+
+# Every push/PR: fast compile-check only (no downloads).
+# On a version tag (v*) or manual run: full package -- fetch the real
+# cpuminer-opt (CPU) and ccminer-tpfuemp (GPU) engines from their own GitHub
+# releases, bundle everything, zip/tar it, and attach it to a GitHub Release.
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to attach files to a release
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64 cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Compile GUI (always -- this is the fast build-break check)
+        working-directory: windows
+        run: |
+          x86_64-w64-mingw32-windres mtbc_miner.rc -O coff -o mtbc_miner_res.o
+          x86_64-w64-mingw32-gcc -municode -mwindows -O2 \
+            -o MateableCoinMiner.exe mtbc_miner_gui.c mtbc_miner_res.o -lcomctl32
+
+      - name: Upload compiled exe (every run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MateableCoinMiner-exe-only
+          path: windows/MateableCoinMiner.exe
+
+      - name: Fetch cpuminer-opt (CPU engine) -- real upstream release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p package
+          cp windows/MateableCoinMiner.exe package/
+          cp windows/mtbc_miner.ico package/ || true
+
+          REL=$(curl -s https://api.github.com/repos/tpfuemp/cpuminer-opt/releases/latest)
+          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("windows")) | .browser_download_url')
+          echo "cpuminer-opt asset: $URL"
+          curl -sL -o cpuminer-win.zip "$URL"
+          mkdir cpuminer-extract && unzip -q cpuminer-win.zip -d cpuminer-extract
+          # Bundle the 3-tier compatibility set (sse2/avx2/avx512), matching
+          # PickMinerBinary()'s own fallback logic in mtbc_miner_gui.c.
+          find cpuminer-extract -iname 'cpuminer-sse2.exe' -exec cp {} package/ \;
+          find cpuminer-extract -iname 'cpuminer-avx2.exe' -exec cp {} package/ \;
+          find cpuminer-extract -iname 'cpuminer-avx512.exe' -exec cp {} package/ \;
+
+          curl -sL -o package/cpuminer-opt-LICENSE.txt https://raw.githubusercontent.com/tpfuemp/cpuminer-opt/master/LICENSE
+          curl -sL -o package/cpuminer-opt-COPYING.txt https://raw.githubusercontent.com/tpfuemp/cpuminer-opt/master/COPYING
+
+      - name: Fetch ccminer-tpfuemp (GPU engine) -- real upstream release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          REL=$(curl -s https://api.github.com/repos/tpfuemp/ccminer-tpfuemp/releases/latest)
+          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("windows")) | .browser_download_url')
+          echo "ccminer-tpfuemp asset: $URL"
+          curl -sL -o ccminer-win.zip "$URL"
+          mkdir ccminer-extract && unzip -q ccminer-win.zip -d ccminer-extract
+          find ccminer-extract -iname 'ccminer.exe' -exec cp {} package/ \;
+
+          curl -sL -o package/ccminer-tpfuemp-LICENSE.txt https://raw.githubusercontent.com/tpfuemp/ccminer-tpfuemp/master/LICENSE.txt
+          curl -sL -o package/ccminer-tpfuemp-CREDITS.txt https://raw.githubusercontent.com/tpfuemp/ccminer-tpfuemp/master/CREDITS.txt
+
+      - name: Zip the Windows package
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: cd package && zip -r ../MateableCoinMiner-windows.zip .
+
+      - name: Upload full Windows package artifact
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MateableCoinMiner-windows
+          path: MateableCoinMiner-windows.zip
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MateableCoinMiner-windows.zip
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax check (always -- fast build-break check)
+        run: bash -n linux/mtbc-miner.sh
+
+      - name: Fetch cpuminer-opt (Linux binaries) -- real upstream release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p package
+          cp linux/mtbc-miner.sh linux/MateableCoinMiner.desktop linux/mtbc_miner.png package/
+          chmod +x package/mtbc-miner.sh
+
+          REL=$(curl -s https://api.github.com/repos/tpfuemp/cpuminer-opt/releases/latest)
+          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("linux-x86_64")) | .browser_download_url')
+          echo "cpuminer-opt linux asset: $URL"
+          curl -sL -o cpuminer-linux.tar.gz "$URL"
+          mkdir cpuminer-extract && tar xzf cpuminer-linux.tar.gz -C cpuminer-extract
+
+          mkdir -p package/build
+          find cpuminer-extract -iname 'cpuminer-sse2' -exec cp {} package/build/ \;
+          find cpuminer-extract -iname 'cpuminer-avx2' -exec cp {} package/build/ \;
+          find cpuminer-extract -iname 'cpuminer-avx512' -exec cp {} package/build/ \;
+          chmod +x package/build/*
+          curl -sL -o package/build/cpuminer-opt-LICENSE.txt https://raw.githubusercontent.com/tpfuemp/cpuminer-opt/master/LICENSE
+          curl -sL -o package/build/cpuminer-opt-COPYING.txt https://raw.githubusercontent.com/tpfuemp/cpuminer-opt/master/COPYING
+
+      - name: Tar the Linux package
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: cd package && tar czf ../MateableCoinMiner-linux.tar.gz .
+
+      - name: Upload Linux package artifact
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MateableCoinMiner-linux
+          path: MateableCoinMiner-linux.tar.gz
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MateableCoinMiner-linux.tar.gz

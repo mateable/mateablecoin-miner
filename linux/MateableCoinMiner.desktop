@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MateableCoin Miner
+Comment=Mine MateableCoin (MTBC) with cpuminer-opt
+Exec=bash -c "cd \"$(dirname '%k')\"; ./mtbc-miner.sh; echo; read -p 'Press Enter to close...'"
+Icon=mtbc_miner.png
+Terminal=true
+Categories=Utility;

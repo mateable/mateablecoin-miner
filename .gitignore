@@ -1,0 +1,7 @@
+# Build output -- the workflow fetches the real cpuminer-opt/ccminer-tpfuemp
+# binaries fresh on every release, so none of this gets committed.
+build/
+*.exe
+*.o
+*.zip
+*.tar.gz
