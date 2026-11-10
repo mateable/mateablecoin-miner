@@ -45,7 +45,11 @@ jobs:
           cp windows/mtbc_miner.ico package/ || true
 
           REL=$(curl -s https://api.github.com/repos/tpfuemp/cpuminer-opt/releases/latest)
-          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("windows")) | .browser_download_url')
+          # Pick the most recently-uploaded matching asset -- upstream
+          # sometimes ships a "p2"/patch follow-up build alongside the
+          # original under the same tag, which a plain substring match
+          # would catch twice and break curl with a two-line "URL".
+          URL=$(echo "$REL" | jq -r '[.assets[] | select(.name | test("windows"))] | sort_by(.created_at) | last | .browser_download_url')
           echo "cpuminer-opt asset: $URL"
           curl -sL -o cpuminer-win.zip "$URL"
           mkdir cpuminer-extract && unzip -q cpuminer-win.zip -d cpuminer-extract
@@ -62,7 +66,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: |
           REL=$(curl -s https://api.github.com/repos/tpfuemp/ccminer-tpfuemp/releases/latest)
-          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("windows")) | .browser_download_url')
+          # See the matching comment in the cpuminer-opt fetch step above --
+          # same "pick the newest matching asset" fix for the same reason.
+          URL=$(echo "$REL" | jq -r '[.assets[] | select(.name | test("windows"))] | sort_by(.created_at) | last | .browser_download_url')
           echo "ccminer-tpfuemp asset: $URL"
           curl -sL -o ccminer-win.zip "$URL"
           mkdir ccminer-extract && unzip -q ccminer-win.zip -d ccminer-extract
@@ -104,7 +110,7 @@ jobs:
           chmod +x package/mtbc-miner.sh
 
           REL=$(curl -s https://api.github.com/repos/tpfuemp/cpuminer-opt/releases/latest)
-          URL=$(echo "$REL" | jq -r '.assets[] | select(.name | test("linux-x86_64")) | .browser_download_url')
+          URL=$(echo "$REL" | jq -r '[.assets[] | select(.name | test("linux-x86_64"))] | sort_by(.created_at) | last | .browser_download_url')
           echo "cpuminer-opt linux asset: $URL"
           curl -sL -o cpuminer-linux.tar.gz "$URL"
           mkdir cpuminer-extract && tar xzf cpuminer-linux.tar.gz -C cpuminer-extract
